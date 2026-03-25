@@ -20,19 +20,17 @@ def extract_features():
     
     START_DATE = (datetime.date.today() - datetime.timedelta(days=365)).strftime("%Y-%m-%d")
     END_DATE = datetime.date.today().strftime("%Y-%m-%d")
-    stk_tickers = ['MSFT', 'IBM', 'GOOGL']
-    ccy_tickers = ['DEXJPUS', 'DEXUSUK']
-    idx_tickers = ['SP500', 'DJIA', 'VIXCLS']
+    stk_tickers = ['META', 'NFLX']
     
     stk_data = yf.download(stk_tickers, start=START_DATE, end=END_DATE, auto_adjust=False)
     #stk_data = web.DataReader(stk_tickers, 'yahoo')
     ccy_data = web.DataReader(ccy_tickers, 'fred', start=START_DATE, end=END_DATE)
     idx_data = web.DataReader(idx_tickers, 'fred', start=START_DATE, end=END_DATE)
 
-    Y = np.log(stk_data.loc[:, ('Adj Close', 'MSFT')]).diff(return_period).shift(-return_period)
+    Y = np.log(stk_data.loc[:, ('Adj Close', 'META')]).diff(return_period).shift(-return_period)
     Y.name = Y.name[-1]+'_Future'
     
-    X1 = np.log(stk_data.loc[:, ('Adj Close', ('GOOGL', 'IBM'))]).diff(return_period)
+    X1 = np.log(stk_data.loc[:, ('Adj Close', ('NFLX'))]).diff(return_period)
     X1.columns = X1.columns.droplevel()
     X2 = np.log(ccy_data).diff(return_period)
     X3 = np.log(idx_data).diff(return_period)
