@@ -59,6 +59,8 @@ sm_session = sagemaker.Session(boto_session=session)
 # Data & Model Configuration
 df_features = extract_features()
 
+# match what you have in notebook in your features (list of stocks tickers)
+
 MODEL_INFO = {
         "endpoint": aws_endpoint,
         "explainer": 'explainer_sentiment.shap',
@@ -106,11 +108,11 @@ def call_model_api(input_df):
     )
 
     try:
-        # For regression
+        # For regression # for option 1, remove comments below, and comment the option 2 lines
         # raw_pred = predictor.predict(input_df)
         # pred_val = pd.DataFrame(raw_pred).values[-1][0]
         # return round(float(pred_val), 4), 200
-        # For classification
+        # For classification # for option 2+3, already set up, 3 lines blow 
         raw_pred = predictor.predict(input_df)
         pred_val = pd.DataFrame(raw_pred).values[-1][0]
         mapping = {-1: "SELL", 0: "HOLD", 1: "BUY"}
@@ -132,12 +134,12 @@ def display_explanation(input_df, session, aws_bucket):
     
     st.subheader("🔍 Decision Transparency (SHAP)")
     fig, ax = plt.subplots(figsize=(10, 4))
-    #shap.plots.waterfall(shap_values[0], max_display=10)
-    shap.plots.waterfall(shap_values[0, :, 0])
+    #shap.plots.waterfall(shap_values[0], max_display=10) #uncomment for regression, option 1
+    shap.plots.waterfall(shap_values[0, :, 0]) # option 2 and 3
     st.pyplot(fig)
     # top feature 
-    # top_feature = pd.Series(shap_values[0].values, index=shap_values[0].feature_names).abs().idxmax()
-    top_feature = pd.Series(shap_values[0, :, 0].values, index=shap_values[0, :, 0].feature_names).abs().idxmax()
+    # top_feature = pd.Series(shap_values[0].values, index=shap_values[0].feature_names).abs().idxmax() #option 1
+    top_feature = pd.Series(shap_values[0, :, 0].values, index=shap_values[0, :, 0].feature_names).abs().idxmax() #option 2 and 3
     st.info(f"**Business Insight:** The most influential factor in this decision was **{top_feature}**.")
 
 
