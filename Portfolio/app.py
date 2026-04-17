@@ -1,12 +1,8 @@
 import os, sys, warnings
+import math
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
-
-import joblib
-import tarfile
-import tempfile
 
 import boto3
 import sagemaker
@@ -14,146 +10,163 @@ from sagemaker.predictor import Predictor
 from sagemaker.serializers import CSVSerializer
 from sagemaker.deserializers import JSONDeserializer
 
-from sklearn.pipeline import Pipeline
-
-from joblib import dump
-from joblib import load
-
-# ── Setup ────────────────────────────────────────────────────────────────────
 warnings.simplefilter("ignore")
 
-# ── Secrets ──────────────────────────────────────────────────────────────────
+# ── Secrets ───────────────────────────────────────────────────────────────────
 aws_id       = st.secrets["aws_credentials"]["AWS_ACCESS_KEY_ID"]
 aws_secret   = st.secrets["aws_credentials"]["AWS_SECRET_ACCESS_KEY"]
 aws_token    = st.secrets["aws_credentials"]["AWS_SESSION_TOKEN"]
 aws_bucket   = st.secrets["aws_credentials"]["AWS_BUCKET"]
 aws_endpoint = st.secrets["aws_credentials"]["AWS_ENDPOINT"]
 
+# ── Full feature list (235 features) ─────────────────────────────────────────
+ALL_FEATURES = [
+    'TransactionID', 'TransactionAmt', 'ProductCD', 'card1', 'card2', 'card3',
+    'card5', 'addr1', 'addr2', 'dist1', 'dist2', 'C1', 'C3', 'C4', 'C5', 'C7',
+    'C8', 'C10', 'C12', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9',
+    'D10', 'D11', 'D12', 'D13', 'D14', 'D15', 'V1', 'V2', 'V3', 'V4', 'V5',
+    'V6', 'V7', 'V8', 'V9', 'V10', 'V11', 'V12', 'V13', 'V14', 'V15', 'V17',
+    'V19', 'V20', 'V23', 'V24', 'V25', 'V26', 'V27', 'V28', 'V29', 'V30',
+    'V35', 'V37', 'V38', 'V39', 'V41', 'V44', 'V46', 'V47', 'V48', 'V53',
+    'V54', 'V55', 'V56', 'V59', 'V61', 'V62', 'V66', 'V67', 'V68', 'V75',
+    'V76', 'V77', 'V78', 'V80', 'V82', 'V83', 'V86', 'V87', 'V88', 'V89',
+    'V95', 'V96', 'V98', 'V99', 'V100', 'V101', 'V104', 'V105', 'V106',
+    'V107', 'V108', 'V109', 'V110', 'V111', 'V112', 'V113', 'V114', 'V115',
+    'V116', 'V117', 'V118', 'V119', 'V123', 'V124', 'V125', 'V126', 'V127',
+    'V128', 'V129', 'V130', 'V131', 'V132', 'V135', 'V136', 'V137', 'V138',
+    'V139', 'V141', 'V142', 'V143', 'V146', 'V148', 'V161', 'V167', 'V168',
+    'V169', 'V170', 'V171', 'V172', 'V173', 'V174', 'V175', 'V176', 'V177',
+    'V178', 'V179', 'V180', 'V181', 'V182', 'V186', 'V187', 'V188', 'V190',
+    'V191', 'V194', 'V196', 'V197', 'V199', 'V200', 'V202', 'V203', 'V205',
+    'V209', 'V211', 'V212', 'V214', 'V217', 'V218', 'V220', 'V221', 'V223',
+    'V226', 'V227', 'V228', 'V232', 'V233', 'V238', 'V240', 'V241', 'V242',
+    'V245', 'V246', 'V247', 'V250', 'V252', 'V257', 'V259', 'V260', 'V263',
+    'V266', 'V269', 'V279', 'V280', 'V281', 'V282', 'V283', 'V284', 'V285',
+    'V286', 'V287', 'V288', 'V289', 'V290', 'V291', 'V292', 'V293', 'V296',
+    'V297', 'V299', 'V300', 'V302', 'V303', 'V305', 'V306', 'V307', 'V308',
+    'V310', 'V313', 'V314', 'V316', 'V318', 'V319', 'V320', 'V322', 'V323',
+    'V324', 'V325', 'V327', 'V328', 'V331', 'V332', 'V334', 'V335', 'V336',
+    'TransactionAmt_log'
+]
+
 # ── AWS Session ───────────────────────────────────────────────────────────────
 @st.cache_resource
-def get_session(aws_id, aws_secret, aws_token):
-    return boto3.Session(
+def get_predictor(aws_id, aws_secret, aws_token):
+    session = boto3.Session(
         aws_access_key_id=aws_id,
         aws_secret_access_key=aws_secret,
         aws_session_token=aws_token,
         region_name='us-east-1'
     )
-
-session    = get_session(aws_id, aws_secret, aws_token)
-sm_session = sagemaker.Session(boto_session=session)
-
-# ── Model Configuration ───────────────────────────────────────────────────────
-MODEL_INFO = {
-    "endpoint": aws_endpoint,
-    "pipeline": "finalized_fraud_model.tar.gz",
-    "keys": [
-        "TransactionAmt", "TransactionAmt_log",
-        "card1", "card2", "card3", "card5",
-        "addr1", "addr2", "dist1",
-        "C1", "C2", "D1", "V1", "V2", "V3"
-    ],
-    "inputs": [
-        {"name": "TransactionAmt",     "label": "Transaction Amount ($)",   "min": 0.0,   "max": 50000.0, "default": 100.0,  "step": 1.0},
-        {"name": "card1",              "label": "Card 1 ID",                 "min": 0.0,   "max": 20000.0, "default": 9500.0, "step": 1.0},
-        {"name": "card2",              "label": "Card 2 ID",                 "min": 0.0,   "max": 1000.0,  "default": 111.0,  "step": 1.0},
-        {"name": "card3",              "label": "Card 3 Value",              "min": 0.0,   "max": 300.0,   "default": 150.0,  "step": 1.0},
-        {"name": "card5",              "label": "Card 5 Value",              "min": 0.0,   "max": 300.0,   "default": 226.0,  "step": 1.0},
-        {"name": "addr1",              "label": "Billing Address (addr1)",   "min": 0.0,   "max": 500.0,   "default": 299.0,  "step": 1.0},
-        {"name": "addr2",              "label": "Billing Country (addr2)",   "min": 0.0,   "max": 100.0,   "default": 87.0,   "step": 1.0},
-        {"name": "dist1",              "label": "Distance 1",                "min": 0.0,   "max": 10000.0, "default": 0.0,    "step": 1.0},
-        {"name": "C1",                 "label": "C1 Count Feature",          "min": 0.0,   "max": 2500.0,  "default": 1.0,    "step": 1.0},
-        {"name": "C2",                 "label": "C2 Count Feature",          "min": 0.0,   "max": 2500.0,  "default": 1.0,    "step": 1.0},
-        {"name": "D1",                 "label": "D1 Days Feature",           "min": 0.0,   "max": 640.0,   "default": 0.0,    "step": 1.0},
-        {"name": "V1",                 "label": "V1 (anonymized)",           "min": 0.0,   "max": 1.0,     "default": 1.0,    "step": 0.01},
-        {"name": "V2",                 "label": "V2 (anonymized)",           "min": 0.0,   "max": 1.0,     "default": 1.0,    "step": 0.01},
-        {"name": "V3",                 "label": "V3 (anonymized)",           "min": 0.0,   "max": 1.0,     "default": 1.0,    "step": 0.01},
-    ]
-}
-
-# ── Load Pipeline from S3 ─────────────────────────────────────────────────────
-def load_pipeline(_session, bucket, key):
-    s3_client = _session.client('s3')
-    filename  = MODEL_INFO["pipeline"]
-
-    s3_client.download_file(
-        Filename=filename,
-        Bucket=bucket,
-        Key=f"{key}/{os.path.basename(filename)}"
-    )
-
-    with tarfile.open(filename, "r:gz") as tar:
-        tar.extractall(path=".")
-        joblib_file = [f for f in tar.getnames() if f.endswith('.joblib')][0]
-
-    return joblib.load(joblib_file)
-
-# ── Prediction ────────────────────────────────────────────────────────────────
-def call_model_api(input_df):
-    predictor = Predictor(
-        endpoint_name=MODEL_INFO["endpoint"],
+    sm_session = sagemaker.Session(boto_session=session)
+    return Predictor(
+        endpoint_name=aws_endpoint,
         sagemaker_session=sm_session,
         serializer=CSVSerializer(),
         deserializer=JSONDeserializer()
     )
 
+# ── Prediction ────────────────────────────────────────────────────────────────
+def call_model_api(feature_dict):
+    row = [feature_dict.get(f, 0) for f in ALL_FEATURES]
+    csv_input = ','.join(map(str, row))
     try:
-        csv_input = ','.join(map(str, input_df.values[0]))
+        predictor = get_predictor(aws_id, aws_secret, aws_token)
         response  = predictor.predict(csv_input)
-        pred      = response['predictions'][0]
-        prob      = response['probabilities'][0]
+        pred = response['predictions'][0]
+        prob = response['probabilities'][0]
         return pred, prob, 200
     except Exception as e:
         return None, None, f"Error: {str(e)}"
 
-# ── Streamlit UI ──────────────────────────────────────────────────────────────
+# ── UI ────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Fraud Detection", page_icon="🔍", layout="wide")
 st.title("🔍 IEEE-CIS Fraud Detection")
 st.markdown(
-    "Enter transaction details below to predict whether a transaction is "
+    "Enter transaction details to predict whether a transaction is "
     "**fraudulent or legitimate** using a tuned K-Nearest Neighbors pipeline."
 )
 
 with st.form("pred_form"):
     st.subheader("Transaction Details")
-    cols = st.columns(2)
-    user_inputs = {}
+    st.caption("Fill in the key transaction fields. All other features default to 0.")
 
-    for i, inp in enumerate(MODEL_INFO["inputs"]):
-        with cols[i % 2]:
-            user_inputs[inp["name"]] = st.number_input(
-                inp["label"],
-                min_value=float(inp["min"]),
-                max_value=float(inp["max"]),
-                value=float(inp["default"]),
-                step=float(inp["step"])
-            )
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Transaction Info**")
+        transaction_id  = st.number_input("Transaction ID",         min_value=0,   value=2987004, step=1)
+        transaction_amt = st.number_input("Transaction Amount ($)",  min_value=0.0, value=100.0,   step=1.0)
+        product_cd      = st.number_input("Product CD (encoded)",    min_value=0,   value=1,       step=1)
+        dist1           = st.number_input("Distance 1",              min_value=0.0, value=0.0,     step=1.0)
+        dist2           = st.number_input("Distance 2",              min_value=0.0, value=0.0,     step=1.0)
+
+        st.markdown("**Card Info**")
+        card1 = st.number_input("Card 1 ID",    min_value=0, value=9500, step=1)
+        card2 = st.number_input("Card 2 ID",    min_value=0, value=111,  step=1)
+        card3 = st.number_input("Card 3 Value", min_value=0, value=150,  step=1)
+        card5 = st.number_input("Card 5 Value", min_value=0, value=226,  step=1)
+
+        st.markdown("**Address**")
+        addr1 = st.number_input("Billing Address (addr1)", min_value=0, value=299, step=1)
+        addr2 = st.number_input("Billing Country (addr2)", min_value=0, value=87,  step=1)
+
+    with col2:
+        st.markdown("**Count Features (C)**")
+        c1  = st.number_input("C1",  min_value=0.0, value=1.0, step=1.0)
+        c3  = st.number_input("C3",  min_value=0.0, value=0.0, step=1.0)
+        c4  = st.number_input("C4",  min_value=0.0, value=0.0, step=1.0)
+        c5  = st.number_input("C5",  min_value=0.0, value=1.0, step=1.0)
+        c7  = st.number_input("C7",  min_value=0.0, value=1.0, step=1.0)
+        c8  = st.number_input("C8",  min_value=0.0, value=1.0, step=1.0)
+        c10 = st.number_input("C10", min_value=0.0, value=0.0, step=1.0)
+        c12 = st.number_input("C12", min_value=0.0, value=0.0, step=1.0)
+
+        st.markdown("**Days Features (D)**")
+        d1  = st.number_input("D1",  min_value=0.0, value=0.0, step=1.0)
+        d2  = st.number_input("D2",  min_value=0.0, value=0.0, step=1.0)
+        d4  = st.number_input("D4",  min_value=0.0, value=0.0, step=1.0)
+        d10 = st.number_input("D10", min_value=0.0, value=0.0, step=1.0)
+        d15 = st.number_input("D15", min_value=0.0, value=0.0, step=1.0)
 
     submitted = st.form_submit_button("🔎 Predict Fraud", use_container_width=True)
 
 if submitted:
-    import math
+    amt_log = math.log1p(transaction_amt)
 
-    # Compute log-transformed amount and build full feature row
-    amt     = user_inputs["TransactionAmt"]
-    amt_log = math.log1p(amt)
+    feature_dict = {
+        'TransactionID':      transaction_id,
+        'TransactionAmt':     transaction_amt,
+        'TransactionAmt_log': amt_log,
+        'ProductCD':          product_cd,
+        'card1':              card1,
+        'card2':              card2,
+        'card3':              card3,
+        'card5':              card5,
+        'addr1':              addr1,
+        'addr2':              addr2,
+        'dist1':              dist1,
+        'dist2':              dist2,
+        'C1':                 c1,
+        'C3':                 c3,
+        'C4':                 c4,
+        'C5':                 c5,
+        'C7':                 c7,
+        'C8':                 c8,
+        'C10':                c10,
+        'C12':                c12,
+        'D1':                 d1,
+        'D2':                 d2,
+        'D4':                 d4,
+        'D10':                d10,
+        'D15':                d15,
+    }
 
-    data_row = [
-        amt, amt_log,
-        user_inputs["card1"],  user_inputs["card2"],
-        user_inputs["card3"],  user_inputs["card5"],
-        user_inputs["addr1"],  user_inputs["addr2"],
-        user_inputs["dist1"],
-        user_inputs["C1"],     user_inputs["C2"],
-        user_inputs["D1"],
-        user_inputs["V1"],     user_inputs["V2"],     user_inputs["V3"]
-    ]
-
-    input_df = pd.DataFrame([data_row], columns=MODEL_INFO["keys"])
-
-    pred, prob, status = call_model_api(input_df)
+    pred, prob, status = call_model_api(feature_dict)
 
     if status == 200:
         st.markdown("## Prediction Result")
+
         if pred == 1:
             st.error("🚨 FRAUDULENT TRANSACTION DETECTED")
         else:
@@ -168,11 +181,10 @@ if submitted:
         st.progress(float(prob))
         st.caption(f"Raw probability score: {prob:.4f} | Model: KNN Tuned Pipeline")
 
-        # Feature summary table
         st.subheader("📋 Input Summary")
         summary_df = pd.DataFrame({
-            "Feature": MODEL_INFO["keys"],
-            "Value":   data_row
+            "Feature": list(feature_dict.keys()),
+            "Value":   list(feature_dict.values())
         })
         st.dataframe(summary_df, use_container_width=True)
 
