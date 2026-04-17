@@ -1,4 +1,4 @@
-import os, sys, warnings
+import os, warnings
 import math
 import numpy as np
 import pandas as pd
@@ -19,34 +19,35 @@ aws_token    = st.secrets["aws_credentials"]["AWS_SESSION_TOKEN"]
 aws_bucket   = st.secrets["aws_credentials"]["AWS_BUCKET"]
 aws_endpoint = st.secrets["aws_credentials"]["AWS_ENDPOINT"]
 
-# ── Full feature list (235 features) ─────────────────────────────────────────
+# ── Full feature list (252 features) ─────────────────────────────────────────
 ALL_FEATURES = [
     'TransactionID', 'TransactionAmt', 'ProductCD', 'card1', 'card2', 'card3',
     'card5', 'addr1', 'addr2', 'dist1', 'dist2', 'C1', 'C3', 'C4', 'C5', 'C7',
-    'C8', 'C10', 'C12', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9',
-    'D10', 'D11', 'D12', 'D13', 'D14', 'D15', 'V1', 'V2', 'V3', 'V4', 'V5',
-    'V6', 'V7', 'V8', 'V9', 'V10', 'V11', 'V12', 'V13', 'V14', 'V15', 'V17',
-    'V19', 'V20', 'V23', 'V24', 'V25', 'V26', 'V27', 'V28', 'V29', 'V30',
-    'V35', 'V37', 'V38', 'V39', 'V41', 'V44', 'V46', 'V47', 'V48', 'V53',
-    'V54', 'V55', 'V56', 'V59', 'V61', 'V62', 'V66', 'V67', 'V68', 'V75',
-    'V76', 'V77', 'V78', 'V80', 'V82', 'V83', 'V86', 'V87', 'V88', 'V89',
-    'V95', 'V96', 'V98', 'V99', 'V100', 'V101', 'V104', 'V105', 'V106',
-    'V107', 'V108', 'V109', 'V110', 'V111', 'V112', 'V113', 'V114', 'V115',
-    'V116', 'V117', 'V118', 'V119', 'V123', 'V124', 'V125', 'V126', 'V127',
-    'V128', 'V129', 'V130', 'V131', 'V132', 'V135', 'V136', 'V137', 'V138',
-    'V139', 'V141', 'V142', 'V143', 'V146', 'V148', 'V161', 'V167', 'V168',
-    'V169', 'V170', 'V171', 'V172', 'V173', 'V174', 'V175', 'V176', 'V177',
-    'V178', 'V179', 'V180', 'V181', 'V182', 'V186', 'V187', 'V188', 'V190',
-    'V191', 'V194', 'V196', 'V197', 'V199', 'V200', 'V202', 'V203', 'V205',
-    'V209', 'V211', 'V212', 'V214', 'V217', 'V218', 'V220', 'V221', 'V223',
-    'V226', 'V227', 'V228', 'V232', 'V233', 'V238', 'V240', 'V241', 'V242',
-    'V245', 'V246', 'V247', 'V250', 'V252', 'V257', 'V259', 'V260', 'V263',
-    'V266', 'V269', 'V279', 'V280', 'V281', 'V282', 'V283', 'V284', 'V285',
-    'V286', 'V287', 'V288', 'V289', 'V290', 'V291', 'V292', 'V293', 'V296',
-    'V297', 'V299', 'V300', 'V302', 'V303', 'V305', 'V306', 'V307', 'V308',
-    'V310', 'V313', 'V314', 'V316', 'V318', 'V319', 'V320', 'V322', 'V323',
-    'V324', 'V325', 'V327', 'V328', 'V331', 'V332', 'V334', 'V335', 'V336',
-    'TransactionAmt_log'
+    'C9', 'C12', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10',
+    'D11', 'D12', 'D13', 'D14', 'D15', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6',
+    'V7', 'V8', 'V9', 'V10', 'V12', 'V13', 'V14', 'V15', 'V17', 'V19', 'V20',
+    'V23', 'V24', 'V25', 'V27', 'V29', 'V31', 'V35', 'V36', 'V37', 'V38',
+    'V39', 'V41', 'V44', 'V45', 'V46', 'V47', 'V48', 'V50', 'V51', 'V53',
+    'V54', 'V55', 'V56', 'V57', 'V59', 'V61', 'V65', 'V66', 'V68', 'V69',
+    'V75', 'V76', 'V77', 'V78', 'V79', 'V80', 'V82', 'V83', 'V86', 'V87',
+    'V88', 'V89', 'V90', 'V92', 'V95', 'V96', 'V97', 'V98', 'V99', 'V100',
+    'V101', 'V104', 'V105', 'V106', 'V107', 'V108', 'V109', 'V110', 'V111',
+    'V112', 'V114', 'V115', 'V116', 'V117', 'V118', 'V119', 'V120', 'V121',
+    'V122', 'V123', 'V124', 'V125', 'V126', 'V127', 'V128', 'V129', 'V130',
+    'V131', 'V132', 'V133', 'V134', 'V135', 'V136', 'V137', 'V138', 'V139',
+    'V141', 'V142', 'V143', 'V144', 'V146', 'V148', 'V153', 'V161', 'V164',
+    'V166', 'V167', 'V168', 'V169', 'V170', 'V172', 'V173', 'V174', 'V175',
+    'V176', 'V177', 'V178', 'V179', 'V180', 'V181', 'V183', 'V184', 'V186',
+    'V187', 'V188', 'V191', 'V193', 'V194', 'V196', 'V199', 'V200', 'V202',
+    'V204', 'V205', 'V206', 'V208', 'V209', 'V214', 'V215', 'V217', 'V218',
+    'V220', 'V221', 'V223', 'V226', 'V227', 'V228', 'V234', 'V235', 'V238',
+    'V240', 'V241', 'V242', 'V245', 'V250', 'V259', 'V260', 'V263', 'V270',
+    'V276', 'V279', 'V280', 'V281', 'V282', 'V283', 'V284', 'V285', 'V286',
+    'V287', 'V288', 'V289', 'V290', 'V291', 'V293', 'V294', 'V296', 'V297',
+    'V299', 'V300', 'V302', 'V303', 'V305', 'V306', 'V307', 'V308', 'V309',
+    'V310', 'V311', 'V312', 'V313', 'V314', 'V315', 'V316', 'V319', 'V320',
+    'V321', 'V322', 'V323', 'V324', 'V325', 'V326', 'V327', 'V328', 'V329',
+    'V331', 'V332', 'V334', 'V335', 'V336', 'V337', 'V338', 'TransactionAmt_log'
 ]
 
 # ── AWS Session ───────────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ st.set_page_config(page_title="Fraud Detection", page_icon="🔍", layout="wide"
 st.title("🔍 IEEE-CIS Fraud Detection")
 st.markdown(
     "Enter transaction details to predict whether a transaction is "
-    "**fraudulent or legitimate** using a tuned K-Nearest Neighbors pipeline."
+    "**fraudulent or legitimate** using a tuned Gradient Boosting pipeline."
 )
 
 with st.form("pred_form"):
@@ -118,8 +119,7 @@ with st.form("pred_form"):
         c4  = st.number_input("C4",  min_value=0.0, value=0.0, step=1.0)
         c5  = st.number_input("C5",  min_value=0.0, value=1.0, step=1.0)
         c7  = st.number_input("C7",  min_value=0.0, value=1.0, step=1.0)
-        c8  = st.number_input("C8",  min_value=0.0, value=1.0, step=1.0)
-        c10 = st.number_input("C10", min_value=0.0, value=0.0, step=1.0)
+        c9  = st.number_input("C9",  min_value=0.0, value=0.0, step=1.0)
         c12 = st.number_input("C12", min_value=0.0, value=0.0, step=1.0)
 
         st.markdown("**Days Features (D)**")
@@ -152,8 +152,7 @@ if submitted:
         'C4':                 c4,
         'C5':                 c5,
         'C7':                 c7,
-        'C8':                 c8,
-        'C10':                c10,
+        'C9':                 c9,
         'C12':                c12,
         'D1':                 d1,
         'D2':                 d2,
@@ -179,7 +178,7 @@ if submitted:
             st.metric("Prediction", "Fraud" if pred == 1 else "Legitimate")
 
         st.progress(float(prob))
-        st.caption(f"Raw probability score: {prob:.4f} | Model: KNN Tuned Pipeline")
+        st.caption(f"Raw probability score: {prob:.4f} | Model: Gradient Boosting Tuned Pipeline")
 
         st.subheader("📋 Input Summary")
         summary_df = pd.DataFrame({
